@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/review", tags=["审片意见"])
 
 service = ReviewService()
 
-LIST_FIELDS = ["审片编号", "审片轮次", "审片人", "审片对象", "问题类型", "修改意见", "回复说明", "审片状态"]
+LIST_FIELDS = ["审片编号", "审片轮次", "问题类型", "修改意见", "回复说明", "审片人", "审片对象", "审片状态"]
 STATUSES = ["待审片", "审片中", "待修改", "已通过"]
 
 
@@ -50,10 +50,31 @@ def create_entry(payload: EntryPayload) -> ActionResult:
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条审片记录执行发起审片、提交意见、确认通过；不允许的动作会被拦下并说明原因。"""
-    action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+    """对单条审片记录执行发起审片、提交意见、确认通过。
+
+    - 提交意见必须带问题类型与修改意见，空意见会被拦下；
+    - values.expected_version 与服务端 version 不一致时返回 409，提示后提交者刷新；
+    - values.idempotency_key 相同的提交意见请求只追加一次，支持超时重试；
+    - 已通过记录拒绝一切变更。
+    """
+    values = dict(payload.values)
+    action = str(values.pop("action", "") or "").strip()
+    expected_version = values.pop("expected_version", None)
+    idempotency_key = values.pop("idempotency_key", None)
+    try:
+        expected_version = int(expected_version) if expected_version is not None else None
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="expected_version 必须是整数")
+    entry, message, code = service.run_action(
+        entry_id,
+        action,
+        values,
+        idempotency_key=str(idempotency_key) if idempotency_key is not None else None,
+        expected_version=expected_version,
+    )
     if entry is None:
+        if code == "conflict":
+            raise HTTPException(status_code=409, detail=message)
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
 

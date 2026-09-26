@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from app.seed import SEED_ROWS
@@ -11,8 +12,16 @@ from app.seed import SEED_ROWS
 
 class Store:
     def __init__(self) -> None:
-        self._tables: dict[str, list[dict[str, Any]]] = {
-            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
+        self._tables: dict[str, list[dict[str, Any]]] = {}
+        self.reset()
+
+    def reset(self) -> None:
+        """恢复种子数据；主要供测试用例之间隔离内存状态。
+
+        必须深拷贝：审片记录里 opinions 是嵌套列表，浅拷贝会让写操作回灌到 SEED_ROWS。
+        """
+        self._tables = {
+            name: copy.deepcopy(rows) for name, rows in SEED_ROWS.items()
         }
 
     def module_names(self) -> list[str]:
